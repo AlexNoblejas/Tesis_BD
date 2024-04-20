@@ -1,0 +1,159 @@
+---
+title: "BD_EXCEL_PRUEBA"
+author: "Alexander Noblejas"
+date: "2024-04-08"
+output: html_document
+---
+
+```{r}
+# Cargar paquetes
+library(dplyr)
+library(readxl)
+```
+
+```{r}
+# Leer el archivo Excel
+datos <- read_excel("prueba en rstudio.xlsx", sheet = "MAIN DB (2013-2023)")
+```
+
+```{r}
+# Ordenar la base de datos por la columna de "Fecha"
+datos <- datos[order(datos$Fecha), ]
+```
+
+```{r}
+# Eliminar los valores NA en "Denominaciones"
+datos <- datos[complete.cases(datos$`Denominacion del caso`), ]
+```
+
+
+```{r}
+nombres_conflicto <- unique(datos$`Denominacion del caso`)
+
+#print(nombres_conflicto)
+```
+
+```{r}
+# Crear una función para asignar números a los nombres de conflictos
+asignar_numeros <- function(nombre, nombres_conflicto) {
+  numero <- match(nombre, nombres_conflicto)
+  return(numero)
+}
+```
+
+```{r}
+# Aplicar la función a la columna "Denominacion del caso" y agregar los números asignados a una nueva columna
+datos$Numero <- sapply(datos$`Denominacion del caso`, asignar_numeros, nombres_conflicto)
+
+# Mostrar el dataframe con los números asignados
+print(datos)
+```
+
+```{r}
+datos_ordenados <- datos[order(datos$`Denominacion del caso`), ]
+```
+
+
+```{r}
+#Para asignarle la etiqueta de "Regional" a los datos
+datos_ordenados$Nivel <- ifelse(is.na(datos_ordenados$Nivel), "Regional", datos_ordenados$Nivel)
+```
+
+```{r}
+#Para ordenar la base de datos en función a los número de casos
+datos_ordenados <- datos_ordenados[order(datos_ordenados$Numero), ]
+
+```
+
+
+```{r}
+#install.packages("openxlsx")
+```
+
+```{r}
+# Carga del paquete openxlsx
+library(openxlsx)
+
+# Exportar el dataframe 'datos' a un archivo Excel
+write.xlsx(datos_ordenados, "data_numeros.xlsx")
+```
+
+CREACIÓN DE LA DATA  (data_conflictos)
+
+```{r}
+#Conteo de meses según Fases Activos
+conteo_fases <- datos_ordenados %>%
+  group_by(`Denominacion del caso`) %>%
+  summarize(conteo_fase_temprana = sum(`Fases Activos` == "Fase temprana", na.rm = TRUE),
+            conteo_escalamiento = sum(`Fases Activos` == "Escalamiento", na.rm = TRUE),
+            conteo_crisis = sum(`Fases Activos` == "Crisis", na.rm = TRUE),
+            conteo_desescalamiento = sum(`Fases Activos` == "Desescalamiento", na.rm = TRUE),
+            conteo_dialogo = sum(`Fases Activos` == "Dialogo", na.rm = TRUE))
+
+# Muestra el resultado
+print(conteo_fases)
+```
+```{r}
+#Conteo de meses según Estado
+conteo_estado <- datos_ordenados %>%
+  group_by(`Denominacion del caso`) %>%
+  summarize(conteo_latente = sum(`Estado` == "Latente", na.rm = TRUE),
+            conteo_activo = sum(`Estado` %in% c("Activo", "Activo (reactivado)"), na.rm = TRUE))
+
+# Muestra el resultado
+print(conteo_estado)
+```
+```{r}
+#Clasificación de conflictos según "Nivel de gobierno" y su duración total en meses
+clasificacion_conflictos <- datos_ordenados %>%
+  group_by(`Denominacion del caso`, `Nivel de gobierno`, `Tipo`, `Actividad`, `Tipo de actividad`, `Nivel` ) %>%
+  summarize(n_meses_del_conflictos = n())
+
+# Muestra el resultado
+print(clasificacion_conflictos)
+```
+
+
+```{r}
+#creación de la data si escaló o no
+
+# Crea la variable dicotómica
+variable_escalamiento <- datos_ordenados %>%
+  group_by(`Denominacion del caso`) %>%
+  mutate(escalo = if_else("Escalamiento" %in% `Fases Activos`, 1, 0)) %>%
+  distinct(`Denominacion del caso`, .keep_all = TRUE)
+
+# Selecciona solo las variables deseadas
+variable_escalamiento <- select(variable_escalamiento, `Denominacion del caso`, escalo)
+
+
+# Muestra la nueva base de datos
+print(variable_escalamiento)
+```
+
+
+```{r}
+#Merge de la BASE DE DATOS GENERAL
+
+BD_conflcitos <- merge(conteo_estado, conteo_fases, by = "Denominacion del caso", all = TRUE)
+BD_conflcitos <- merge(BD_conflcitos, clasificacion_conflictos, by = "Denominacion del caso", all = TRUE)
+BD_conflcitos <- merge(BD_conflcitos, variable_escalamiento, by = "Denominacion del caso", all = TRUE)
+
+# Muestra el resultado
+print(BD_conflcitos)
+
+```
+
+```{r}
+#Regresión logísitca binomial
+
+# Realiza la regresión logística
+modelo <- glm(escalo ~ conteo_latente + conteo_activo + `Nivel de gobierno` + conteo_fase_temprana + Tipo + conteo_crisis + Nivel + Actividad + n_meses_del_conflictos, data = BD_conflcitos, family = binomial)
+
+
+# Muestra un resumen del modelo
+summary(modelo)
+```
+
+
+
